@@ -1,0 +1,281 @@
+---
+title: "Generalized Beta Function - Inversion"
+description: |
+  This article describes the method and its application in R to invert the generalized beta function (Hau & Kranz, 1990). The data, method and results are part of the publication:
+    
+author:
+  - name: Vitor Cantarella 
+    url: https://github.com/vcantarella
+    
+date: "`r Sys.Date()`"
+output:
+  distill::distill_article:
+    keep_md: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+## 1. Intro
+
+This Article describes the method and application of the Generalized Beta Function Inversion to model Mycelial growth rate of phoma isolates, used in Patricio et al. (2022).
+
+The objective of this procedure is to model Mycelial Growth of different Phoma *species* with the given function.
+
+Thorough analysis of the results is presented in Patricio et al (2022). This is an accompanion material with the inversion method used.
+
+```{r}
+#The current analysis was performed in R 3.6.0 (2019-04-26)
+#Additional packages: tidyverse(1.2.1), xlsx(0.6.1), ggthemes(4.2.0)
+
+
+library(xlsx) #Loading library to read excel .xlsx files
+library(tidyverse) #tidyverse colletion of packages to handle data and plotting
+library(ggthemes) #further plotting package with extra themes
+
+# Loading the data:
+Base_phoma <- read.xlsx("data/Phoma_tarda_single_table_final.xlsx", sheetIndex = 1, encoding = "UTF-8")
+
+
+#Ensuring we are only reading the important columns 
+#and ignoring possible modifications in the excel file
+Base_phoma <- Base_phoma[,seq(1,4)]
+```
+
+
+### 1.2. Beta Generalized Function
+
+The function is expressed as follows:
+
+$$ f(T) = \beta_1*(T-\beta_2)^{\beta_4}*(\beta_3-T)^{\beta_5}$$
+Where:
+
+$\beta_1, \beta_4, \beta_5$ are adjustment parameters, and
+
+$\beta_2, \beta_3$ are the minimum and maximum temperature.
+
+#### Implementation in R
+
+```{r}
+gener_beta <- function(b1,b2,b3,b4,b5, x){#Calling the function
+  return(b1*(x-b2)^b4*(b3-x)^b5)
+} 
+```
+
+
+## 2. Methods
+
+The goal of this problem is to find the best set of parameters that fit the dataset of Temperature versus Mycelial growth.
+
+A common approach to finding the best set of parameters is to optimize a Loss Function, in which the loss between the predicted values and the observed values is measured. The following Loss Function is the Mean Squared Error (MSE). In this project, the Mean Squared Error is divided by 2 to facilitate the derivation of the function:
+
+$$L(f(T)) = \frac{MSE}{2} = \frac{1}{2}* \frac{\sum_{i=1}^{n}(y_i-f(T_i))^{2}}{n} $$
+In which:  $L(f(T))$ is the Loss Function, $y$ is the observed value and $f(T)$ is the predicted value by the Generalized Beta Function. $n$ is the number of samples.
+
+#### Implementation in R:
+
+```{r}
+loss_gener_beta <- function(b){#Loss Function for the data and optimization algorithm
+  #Inside this function I am already calling the dataframe with the data,
+  #To apply it to different datasets one needs to slightly modify this.
+  b1 <- b[1]
+  b2<-b[2]
+  b3<-b[3]
+  b4<-b[4]
+  b5<-b[5]
+  (1/2)*(sum((base_teste$Mycelial_Growth_mm_day-gener_beta(b1,b2,b3,b4,b5,base_teste$Temperature_C))^2))*
+    (1/dim(base_teste)[1])
+}
+```
+
+
+The best set of parameters is the one that minimizes the Loss Function. In nonlinear models, such as the current function, the best model must generally be fit with numerical optimizers. And these optimizers often use gradient search to find global or local minima for the loss function.
+
+Since this function is differentiable, we can precisely compute its gradient. Therefore, besides calculating the Loss Function, we calculate its gradient to the parameters.
+Alternatively, algorithms include a numerical gradient calculation. By calculating the gradient directly, we avoid numerical errors, that might occur in this step.
+
+The gradient of the Loss Function is defined as:
+
+$$ \nabla L = \begin{bmatrix}
+  \frac{\partial{L}}{\partial \beta_1} \\
+  \frac{\partial{L}}{\partial \beta_2} \\
+  \frac{\partial{L}}{\partial \beta_3} \\
+  \frac{\partial{L}}{\partial \beta_4} \\
+  \frac{\partial{L}}{\partial \beta_5} \\
+  \end{bmatrix} = \begin{bmatrix}
+  \sum_{i=1}^{n}(-1)*(y_i-f(T_i))*(T_i-\beta_2)^{\beta_4}*(\beta_3-T_i)^{\beta_5}/n \\
+  \sum_{i=1}^{n}(-1)*(y_i-f(T_i))*\beta_1*\beta_4*(-1)*(T_i-\beta_2)^{\beta_4-1}*(\beta_3-T_i)^{\beta_5}/n \\
+  \sum_{i=1}^{n}(-1)*(y_i-f(T_i))*\beta_1*\beta_5*(T_i-\beta_2)^{\beta_4}*(\beta_3-T_i)^{\beta_5-1}/n \\
+  \sum_{i=1}^{n}(-1)*(y_i-f(T_i))*\beta_1*(T_i-\beta_2)^{\beta_4}*(\beta_3-T_i)^{\beta_5}*\ln{(T_i-\beta_2)}/n \\
+  \sum_{i=1}^{n}(-1)*(y_i-f(T_i))*\beta_1*(T_i-\beta_2)^{\beta_4}*(\beta_3-T_i)^{\beta_5}*\ln (\beta_3-T_i)/n \\
+  \end{bmatrix}$$
+  
+#### Implementation of the gradient function in R
+
+```{r}
+gradient_loss_beta <- function(b){
+  #Here I'm calculating the gradients as an input for the optimization algorithmn
+  #Again, I'm already calling the dataframe I'm using for optimizing
+  t = base_teste$Temperature_C
+  y = base_teste$Mycelial_Growth_mm_day
+  del_1 = sum((-1)*(y-gener_beta(b[1],b[2],b[3],b[4],b[5], t))*
+                (t-b[2])^b[4]*(b[3]-t)^b[5])
+  del_2 = sum((-1)*(y-gener_beta(b[1],b[2],b[3],b[4],b[5], t))*b[1]*b[4]*
+                (-1)*(t-b[2])^(b[4]-1)*(b[3]-t)^b[5])
+  del_3 = sum((-1)*(y-gener_beta(b[1],b[2],b[3],b[4],b[5], t))*b[1]*b[5]*
+                (t-b[2])^b[4]*(b[3]-t)^(b[5]-1))
+  del_4 = sum((-1)*(y-gener_beta(b[1],b[2],b[3],b[4],b[5], t))*b[1]*(b[3]-t)^b[5]*
+                (t-b[2])^b[4]*log(t-b[2]))
+  del_5 = sum((-1)*(y-gener_beta(b[1],b[2],b[3],b[4],b[5], t))*b[1]*
+                (t-b[2])^b[4]*(b[3]-t)^b[5]*log(b[3]-t))
+  return((c(del_1,del_2,del_3,del_4,del_5)/
+            dim(base_teste)[1]))
+}
+```
+
+
+### 2.1. Optimization
+
+The above functions were implemented in R (R 2019) and the optimization was carried on with the R-function ConstrOptim (Lange, 2001), which performs Constrained Optimization. The numerical algorithm deployed was Broyden-Fletcher-Goldfarb-Shanno (BFGS) simultaneously published by those authors in 1970.
+
+Since optimization in nonlinear models might find non-desirable local minima or the algorithm might search out-of-bounds values, optimization was carried on with constraints. The ConstrOptim function in R allows for constraints deployed in a linear system: u_i∙ θ≥ c_i where θ is the parameter vector and u_i,c_i are the linear system’s values in matrix/vector format. To correctly optimize the loss function, the parameter constraints β_1,β_4,β_5> 0 and  β_2,<7,β_3>27 must be supplied. This is computed through the following linear system:
+
+$$\begin{bmatrix}
+1 & 0 & 0 & 0 & 0 \\
+0 & -1 & 0 & 0 & 0 \\
+0 & 0 & 1 & 0 & 0 \\
+0 & 0 & 0 & 1 & 0 \\
+0 & 0 & 0 & 0 & 1 \\
+\end{bmatrix} * \begin{bmatrix}
+\beta_1 \\
+\beta_2 \\
+\beta_3 \\
+\beta_4 \\ 
+\beta_5 \\
+\end{bmatrix} > \begin{bmatrix}
+0 \\
+-7 \\
+27 \\
+0 \\
+0 \\
+\end{bmatrix}$$
+
+#### Inversion routine implementation in R
+
+The optimization is carried by a ```for``` loop that loops through the names of all isolates and apply the  inversion with ```constrOptim``` to find the parameters for each isolate. Finally it calculates the goodness of fit statistics (R^2 and F) and saves the results to a dataframe.
+
+```{r}
+isolados <- Base_phoma%>% #Pulling all isolates from the dataset:
+  select(Isolate)%>%
+  pull(.)%>%
+  factor(.)%>%
+  levels(.)
+
+params <- data.frame(Isolate = c(), par = c(), mse = c(),
+                     convergence = c(), b1 = c(), b2 = c(),
+                     b3 = c(), b4 = c(), b5 = c(), R_2 = c(),
+                     method = c(), F_test = c())
+j = 1#Declaring an empty dataframe to input the results
+for (i in isolados){
+  Base_phoma%>%
+    filter(!is.na(Mycelial_Growth_mm_day))%>%
+    filter(Isolate == i)-> base_teste #Pulling the dataframe for each isolate
+
+  p <- constrOptim(c(0.3,5,30,0.7,0.7), 
+                   f = loss_gener_beta, 
+                   grad = gradient_loss_beta, 
+                   ui =rbind(c(1,0,0,0,0),
+                             c(0,-1,0,0,0),
+                             c(0,0,1,0,0),
+                             c(0,0,0,1,0)
+                             ,c(0,0,0,0,1)),
+                  ci = c(0,-7,27,0,0)) #Performing the Constrained Opimizer for each isolate.
+  
+  #Calculating the results of the optmized function for goodness of fit measurement:
+  base_teste%>%
+    mutate(beta = gener_beta(p$par[1],p$par[2],p$par[3],p$par[4],p$par[5], Temperature_C))%>%
+    select(beta)%>%
+    pull(.)-> x
+  
+  method = "BFGS"
+  #Adding the results to each row
+  params[j,"Isolate"] = i
+  params[j,"mse"] = p$value*2 #Since we are optimizing on half of the MSE, here I'm multiplying by 2
+  params[j,"convergence"] = p$convergence #Checking if the algorithmn converged. 0 means ok.
+  params[j,"b1"] = p$par[1]
+  params[j,"b2"] = p$par[2]
+  params[j,"b3"] = p$par[3]
+  params[j,"b4"] = p$par[4]
+  params[j,"b5"] = p$par[5]
+  params[j,"R_2"] = cor(x, base_teste$Mycelial_Growth_mm_day)^2
+  params[j, "F_test"] = (nrow(base_teste)-2)*params[j, "R_2"]/(1-params[j, "R_2"])
+  params[j,"method"] = method
+  j = j+1
+  #print(p)
+  }
+params <- params %>%
+  mutate(maxim = (b2*b5+b3*b4)/(b4+b5)) #Calculating the max temperature by maximizing the function (setting the derivative = 0)
+
+```
+
+## 3. Results
+
+```{r, "Table with Results for each Isolate", echo = FALSE}
+library(kableExtra)
+params %>% 
+  mutate_if(is.numeric, 
+            funs(as.character(signif(., 2))))%>%
+kbl() %>% 
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), font_size = 11) %>% 
+  column_spec(1, width = "8em", bold = TRUE)
+```
+
+All isolates had good results with significant parameters and a overall good fit. Discussion on the results is seen in Patricio et al. (2022).
+
+### Plotting the results:
+
+```{r, fig.height= 2, echo = FALSE}
+library(gridExtra)
+plots = rep(NA, nrow(params))
+for (i in 1:nrow(params)){
+  plot_dados <- data.frame(Temperature_C = seq(7,27,by = 0.01), 
+                           fit = gener_beta(params[i,"b1"],params[i,"b2"],params[i,"b3"],
+                                            params[i,"b4"],params[i,"b5"], 
+                                            seq(7,27,0.01)))
+  
+  base_plot <- Base_phoma%>%
+    filter(Isolate == params[i, "Isolate"])%>%
+    group_by(Temperature_C)%>%
+    summarize(cresc_medio = mean(Mycelial_Growth_mm_day,
+                                 na.rm = T),
+              cresc_min = min(Mycelial_Growth_mm_day, na.rm = T),
+              cresc_max = max(Mycelial_Growth_mm_day, na.rm = T))
+  eq <- substitute(~~italic(r)^2~"="~r2,list(r2 = format(params[i, "R_2"], digits = 2)))
+  p = print(
+    ggplot(data = base_plot, aes(x = Temperature_C, y = cresc_medio))+
+              geom_point()+
+              geom_errorbar(aes(ymin = cresc_min,ymax = cresc_max), width = 0.2)+
+              
+    geom_line(data = plot_dados, aes(x = Temperature_C, y = fit))+
+      ggtitle(params[i, "Isolate"])+
+      theme_few()+
+      xlab("Temperature ºC")+
+      ylab("Mycelial Growth (mm/day)")+
+      geom_text(label = as.expression(eq), 
+                aes(x = 7, y = max(cresc_max)),
+                vjust = "inward", hjust = "inward")
+    )
+  
+}
+
+```
+## 4. References
+
+* Broyden, C. G. (1970), "The convergence of a class of double-rank minimization algorithms", Journal of the Institute of Mathematics and Its Applications, 6: 76–90, doi:10.1093/imamat/6.1.76
+* Fletcher, R. (1970), "A New Approach to Variable Metric Algorithms", Computer Journal, 13 (3): 317–322, doi:10.1093/comjnl/13.3.317
+* Goldfarb, D. (1970), "A Family of Variable Metric Updates Derived by Variational Means", Mathematics of Computation, 24 (109): 23–26, doi:10.1090/S0025-5718-1970-0258249-6
+* Hau, B.; Kranz, J. Mathematics and statistics for analyzes in epidemiology. In: Kranz, J. (Ed.) Epidemics of plant diseases: mathematical analyses and modelling. Berlin: Springer-Verlag, 1990. p.12-52.
+* Lange, K. "Numerical Analysis for Statisticians". Springer 2001, p185ff
+* Shanno, David F. (July 1970), "Conditioning of quasi-Newton methods for function minimization", Mathematics of Computation, 24 (111): 647–656, doi:10.1090/S0025-5718-1970-0274029-X, MR 0274029
+
