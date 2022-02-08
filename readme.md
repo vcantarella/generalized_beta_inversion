@@ -49,12 +49,12 @@ Thorough analysis of the results is presented in Patricio et al (2022). This is 
 
 The function is expressed as follows:
 
-$$ f(T) = \beta_1*(T-\beta_2)^{\beta_4}*(\beta_3-T)^{\beta_5}$$
+$$ f(T) = \beta_1*(T-\beta_2)^{\beta_4}*(\beta_3-T)^{\beta_5} $$
 Where:
 
-$\beta_1, \beta_4, \beta_5$ are adjustment parameters, and
+$ \beta_1, \beta_4, \beta_5 $ are adjustment parameters, and
 
-$\beta_2, \beta_3$ are the minimum and maximum temperature.
+$ \beta_2, \beta_3 $ are the minimum and maximum temperature.
 
 #### Implementation in R
 
